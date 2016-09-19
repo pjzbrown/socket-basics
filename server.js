@@ -7,9 +7,64 @@ var moment = require('moment');
 
 app.use(express.static(__dirname + '/public'));
 
-var clientInfo = {
+var clientInfo = {};
 
-};
+// Sends current users to provided socket
+function sendCurrentUsers (socket) {
+	var info  = clientInfo[socket.id];
+	var users = [];
+
+	if (typeof info === 'undefined') {
+		return;
+	}
+
+	Object.keys(clientInfo).forEach(function (socketId) {
+		var userInfo = clientInfo[socketId];
+
+		if (info.room === userInfo.room) {
+			users.push(userInfo.name);
+		}	 	
+	});
+
+	socket.emit('message', {
+		name: 'System',
+		text: 'Current users: ' + users.join(', '),
+		timestamp: moment.valueOf()
+	});
+}
+
+// Sends current users to provided socket
+function sendPrivateMessage (socket, message) {
+	var msg =  message.text.substring(9);
+	var lngth = msg.indexOf(' ');
+	var privateRecipient = msg.slice(0, lngth);
+
+	var reqSocket;
+
+	Object.keys(clientInfo).forEach(function (socketId) {
+		var userInfo = clientInfo[socketId];
+
+		if (userInfo.name === privateRecipient) {
+			reqSocket = socketId;
+		}	 	
+	});
+
+	if (reqSocket) {
+		msg = msg.substring(lngth);
+
+		io.to(reqSocket).emit('message', {
+			name: message.name,
+			text: msg + ' for ' + privateRecipient,
+			timestamp: moment.valueOf()
+		});
+	} else {
+		socket.emit('message', {
+				name: 'System',
+				text: 'Private message failed: ' + msg,
+				timestamp: moment.valueOf()
+			});
+	}
+}
 
 io.on('connection', function(socket) {
 	console.log("User connected via socket.io");
@@ -47,10 +102,15 @@ io.on('connection', function(socket) {
 	socket.on('message', function(message) {
 		console.log('Message received:' + message.text);
 
-		message.timestamp = moment.valueOf();
+		if (message.text === '@currentUsers') {
+			sendCurrentUsers(socket); 
+		} else if (message.text.startsWith('@private')) {
+			sendPrivateMessage(socket, message); 
+		} else {
+			message.timestamp = moment.valueOf();
 
-		io.to(clientInfo[socket.id].room).emit('message', message);
-		//socket.broadcast.emit('message', message);
+			io.to(clientInfo[socket.id].room).emit('message', message);
+		}
 	});
 
 	socket.emit('message', {
